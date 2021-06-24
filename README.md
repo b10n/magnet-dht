@@ -1,5 +1,12 @@
 # Python3 DHT 网络磁力种子采集器
 
+## Fork info
+
+This fork adds the following features:
+* IPv6 support ([BEP32](https://www.bittorrent.org/beps/bep_0032.html))
+* Collecting IP addresses
+* Scanning rate selection
+
 ## 😎 严肃的理论
 
 ### 磁力链接

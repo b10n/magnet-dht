@@ -3,15 +3,13 @@
 
 import os
 import logging
+import socket
 from struct import unpack
-from socket import inet_ntoa
 
-# 每个节点长度
-PER_NODE_LEN = 26
+from . import config
+
 # 节点 id 长度
 PER_NID_LEN = 20
-# 节点 id 和 ip 长度
-PER_NID_NIP_LEN = 24
 # 构造邻居随机结点
 NEIGHBOR_END = 14
 # 日志等级
@@ -41,6 +39,15 @@ def get_nodes_info(nodes):
 
     :param nodes: 节点薪资
     """
+    if config.IPV6:
+        PER_NODE_LEN = 38
+        PER_NID_NIP_LEN = 36
+        IFACE_TYPE = socket.AF_INET6
+    else:
+        PER_NODE_LEN = 26
+        PER_NID_NIP_LEN = 24
+        IFACE_TYPE = socket.AF_INET
+
     length = len(nodes)
     # 每个节点单位长度为 26 为，node = node_id(20位) + node_ip(4位) + node_port(2位)
     if (length % PER_NODE_LEN) != 0:
@@ -48,8 +55,7 @@ def get_nodes_info(nodes):
 
     for i in range(0, length, PER_NODE_LEN):
         nid = nodes[i : i + PER_NID_LEN]
-        # 利用 inet_ntoa 可以返回节点 ip
-        ip = inet_ntoa(nodes[i + PER_NID_LEN : i + PER_NID_NIP_LEN])
+        ip = socket.inet_ntop(IFACE_TYPE, nodes[i + PER_NID_LEN : i + PER_NID_NIP_LEN])
         # 解包返回节点端口
         port = unpack("!H", nodes[i + PER_NID_NIP_LEN : i + PER_NODE_LEN])[0]
         yield (nid, ip, port)

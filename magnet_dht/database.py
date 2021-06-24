@@ -1,6 +1,8 @@
 #!/usr/bin/env python
 # coding=utf-8
 
+from . import config
+
 import redis
 
 # redis key
@@ -30,6 +32,13 @@ class RedisClient:
         新增磁力链接
         """
         self.redis.sadd(REDIS_KEY, magnet)
+
+    def add_ip(self, ip):
+        """
+        新增磁力链接
+        """
+        KEY = "ipv6" if config.IPV6 else "ipv4"
+        self.redis.sadd(KEY, ip)
 
     def get_magnets(self, count=128):
         """

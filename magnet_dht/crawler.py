@@ -10,6 +10,7 @@ from multiprocessing import Process, cpu_count
 
 import bencoder
 
+from . import config
 from .utils import get_logger, get_nodes_info, get_rand_id, get_neighbor
 from .database import RedisClient
 
@@ -44,14 +45,10 @@ BOOTSTRAP_NODES = [
 MAX_NODE_QSIZE = 10000
 # UDP 报文 buffsize
 UDP_RECV_BUFFSIZE = 65535
-# 服务 host
-SERVER_HOST = "0.0.0.0"
 # 服务端口
 SERVER_PORT = 9090
 # 磁力链接前缀
 MAGNET_PER = "magnet:?xt=urn:btih:{}"
-# while 循环休眠时间
-SLEEP_TIME = 1e-5
 # 节点 id 长度
 PER_NID_LEN = 20
 # 执行 bs 定时器间隔（秒）
@@ -76,7 +73,7 @@ class DHTServer:
         # nodes 节点是一个双端队列
         self.nodes = deque(maxlen=MAX_NODE_QSIZE)
         # KRPC 协议是由 bencode 编码组成的一个简单的 RPC 结构，使用 UDP 报文发送。
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        self.udp = socket.socket(PROTO, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         # UDP 地址绑定
         self.udp.bind((self.bind_ip, self.bind_port))
         # redis 客户端
@@ -147,7 +144,7 @@ class DHTServer:
             t=tid,
             y="q",
             q="find_node",  # 指定请求为 find_node
-            a=dict(id=nid, target=get_rand_id()),
+            a=dict(id=nid, target=get_rand_id(), want=WANT),
         )
         self.send_krpc(msg, address)
 
@@ -161,10 +158,11 @@ class DHTServer:
                 # 弹出一个节点
                 node = self.nodes.popleft()
                 self.send_find_node((node.ip, node.port), node.nid)
-                time.sleep(SLEEP_TIME)
-            except IndexError:
-                # 一旦节点队列为空，则重新加入 DHT 网络
+            except IndexError as e:
+                ## 一旦节点队列为空，则重新加入 DHT 网络
                 self.bootstrap()
+            finally:
+                time.sleep(1 / config.RATE)
 
     def save_magnet(self, info_hash):
         """
@@ -194,8 +192,8 @@ class DHTServer:
             if msg[b"y"] == b"r":
                 # nodes 是字符串类型，包含了被请求节点的路由表中最接近目标节点
                 # 的 K个最接近的节点的联系信息。
-                if msg[b"r"].get(b"nodes", None):
-                    self.on_find_node_response(msg)
+                if msg[b"r"].get(NODES_TAG, None):
+                    self.on_find_node_response(msg, address)
             # `请求`
             # 对应于 KPRC 消息字典中的 y 关键字的值是 q，它包含 2 个附加的关键字
             # q 和 a。关键字 q 是字符串类型，包含了请求的方法名字。关键字 a 一个字典
@@ -217,15 +215,16 @@ class DHTServer:
         except KeyError:
             pass
 
-    def on_find_node_response(self, msg):
+    def on_find_node_response(self, msg, address):
         """
         解码 nodes 节点信息，并存储在双端队列
 
         :param msg: 节点报文信息
         """
-        nodes = get_nodes_info(msg[b"r"][b"nodes"])
+        nodes = get_nodes_info(msg[b"r"][NODES_TAG])
         for node in nodes:
             nid, ip, port = node
+            self.rc.add_ip(ip)
             # 进行节点有效性判断
             if len(nid) != PER_NID_LEN or ip == self.bind_ip:
                 continue
@@ -281,7 +280,7 @@ class DHTServer:
                 msg = bencoder.bdecode(data)
                 # 处理返回信息
                 self.on_message(msg, address)
-                time.sleep(SLEEP_TIME)
+                time.sleep(1 / config.RATE)
             except Exception as e:
                 self.logger.warning(e)
 
@@ -310,6 +309,18 @@ def start_server():
     """
     多线程启动服务
     """
+    global SERVER_HOST, PROTO, NODES_TAG, WANT
+    if config.IPV6:
+        SERVER_HOST = "::"
+        PROTO = socket.AF_INET6
+        NODES_TAG = b"nodes6"
+        WANT = "n6"
+    else:
+        SERVER_HOST = "0.0.0.0"
+        PROTO = socket.AF_INET
+        NODES_TAG = b"nodes"
+        WANT = "n4"
+
     processes = []
     for i in range(MAX_PROCESSES):
         processes.append(Process(target=_start_thread, args=(i,)))
